@@ -1,0 +1,243 @@
+openapi: 3.0.0
+info:
+  title: Hotel Booking API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /users:
+    post:
+      summary: Create new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          description: User already exists
+    get:
+      summary: Search users
+      parameters:
+        - name: login
+          in: query
+          schema:
+            type: string
+        - name: first_name_mask
+          in: query
+          schema:
+            type: string
+        - name: last_name_mask
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+  /auth/login:
+    post:
+      summary: Login and receive JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials
+  /hotels:
+    get:
+      summary: Get hotels list or filter by city
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Hotels list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Hotel'
+    post:
+      summary: Create hotel
+      security:
+        - jwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HotelCreateRequest'
+      responses:
+        '201':
+          description: Hotel created
+        '401':
+          description: Unauthorized
+  /bookings:
+    get:
+      summary: Get authenticated user's bookings
+      security:
+        - jwt: []
+      responses:
+        '200':
+          description: Bookings list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Booking'
+    post:
+      summary: Create booking for authenticated user
+      security:
+        - jwt: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingCreateRequest'
+      responses:
+        '201':
+          description: Booking created
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+  /bookings/{id}:
+    delete:
+      summary: Cancel booking
+      security:
+        - jwt: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Booking cancelled
+        '400':
+          description: Invalid booking id
+        '401':
+          description: Unauthorized
+        '403':
+          description: Booking belongs to another user
+        '404':
+          description: Booking not found
+components:
+  securitySchemes:
+    jwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    UserCreateRequest:
+      type: object
+      required: [login, password, first_name, last_name]
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        login:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+    HotelCreateRequest:
+      type: object
+      required: [name, city, address]
+      properties:
+        name:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+    Hotel:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+    BookingCreateRequest:
+      type: object
+      required: [hotel_id, check_in, check_out]
+      properties:
+        hotel_id:
+          type: integer
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+    Booking:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        hotel_id:
+          type: integer
+        check_in:
+          type: string
+        check_out:
+          type: string
+        active:
+          type: boolean
