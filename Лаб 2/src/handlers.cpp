@@ -240,6 +240,12 @@ std::string CreateBookingHandler::HandleRequestThrow(
         const auto check_out = ReadString(body, "check_out");
         const auto user_id = CurrentUserId(context);
 
+        if (check_in >= check_out) {
+            request.SetResponseStatus(userver::server::http::HttpStatus::kBadRequest);
+            request.GetHttpResponse().SetHeader(std::string("Content-Type"), std::string("application/json"));
+            return ErrorJson("check_in must be earlier than check_out");
+        }
+
         auto& storage = Storage::instance();
         const auto booking = storage.addBooking(user_id, hotel_id, check_in, check_out);
         if (!booking) {

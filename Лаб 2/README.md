@@ -1,8 +1,12 @@
-# Hotel Booking REST API (вариант 13)
+# Домашнее задание №2 по курсу «Системный дизайн»
+## Вариант 13: Система бронирования отелей (аналог Booking.com)
 
-Проект реализует задание варианта 13 — **система бронирования отелей**.
+### Цель работы
 
-## Что покрыто
+Получить практические навыки разработки REST API сервиса с 
+использованием принципов REST, обработкой HTTP запросов, реализацией аутентификации и документированием API. 
+
+## Реализованные операции
 
 - Создание пользователя
 - Поиск пользователя по логину
@@ -13,8 +17,7 @@
 - Создание бронирования
 - Получение бронирований пользователя
 - Отмена бронирования
-- JWT-аутентификация
-- Защита более чем двух endpoint’ов
+
 
 ## API
 
@@ -23,11 +26,38 @@
 - `POST /users`
 - `GET /users?login=...&first_name_mask=...&last_name_mask=...`
 - `POST /auth/login`
-- `POST /hotels` — защищён JWT
+- `POST /hotels`
 - `GET /hotels?city=...`
 - `POST /bookings` — защищён JWT
 - `GET /bookings` — защищён JWT
 - `DELETE /bookings/{id}` — защищён JWT
+
+### Примеры запросов
+
+Создание пользователя:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/users \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"alice","password":"secret","first_name":"Alice","last_name":"Ivanova"}'
+```
+
+Логин:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"alice","password":"secret"}'
+```
+
+Создание бронирования:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/bookings \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"hotel_id":1,"check_in":"2026-04-01","check_out":"2026-04-05"}'
+```
 
 ## Запуск
 
@@ -36,6 +66,8 @@
 ```bash
 docker compose up --build
 ```
+
+Сервис поднимается на `http://localhost:8080`.
 
 ### Локально
 

@@ -68,6 +68,10 @@ bool TestStorageHotelsAndBookings() {
     auto bad_booking = storage.addBooking(user->id, hotel1->id, "2026-05-05", "2026-05-01");
     CHECK(!bad_booking.has_value());
 
+
+    auto same_day_booking = storage.addBooking(user->id, hotel1->id, "2026-05-05", "2026-05-05");
+    CHECK(!same_day_booking.has_value());
+
     auto booking = storage.addBooking(user->id, hotel1->id, "2026-04-01", "2026-04-05");
     REQUIRE(booking.has_value());
     CHECK(booking->id == 1);

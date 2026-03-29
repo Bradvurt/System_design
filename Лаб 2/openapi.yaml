@@ -47,6 +47,13 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
+              examples:
+                sample:
+                  value:
+                    - id: 1
+                      login: alice
+                      first_name: Alice
+                      last_name: Ivanova
   /auth/login:
     post:
       summary: Login and receive JWT token
@@ -82,10 +89,15 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Hotel'
+              examples:
+                sample:
+                  value:
+                    - id: 1
+                      name: Grand Hotel
+                      city: Moscow
+                      address: Tverskaya 1
     post:
       summary: Create hotel
-      security:
-        - jwt: []
       requestBody:
         required: true
         content:
@@ -95,8 +107,6 @@ paths:
       responses:
         '201':
           description: Hotel created
-        '401':
-          description: Unauthorized
   /bookings:
     get:
       summary: Get authenticated user's bookings
@@ -182,6 +192,8 @@ components:
       properties:
         token:
           type: string
+      example:
+        token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxfQ.signature
     User:
       type: object
       properties:
@@ -241,3 +253,10 @@ components:
           type: string
         active:
           type: boolean
+      example:
+        id: 1
+        user_id: 1
+        hotel_id: 1
+        check_in: '2026-04-01'
+        check_out: '2026-04-05'
+        active: true

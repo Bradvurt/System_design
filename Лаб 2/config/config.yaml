@@ -3,25 +3,29 @@ components_manager:
     initial_size: 100
     max_size: 1000
   task_processors:
+    fs-task-processor:
+      worker_threads: 2
+      thread_name: fs-worker
     main-task-processor:
       worker_threads: 4
   default_task_processor: main-task-processor
   components:
+    server:
+      listener:
+        port: 8080
+        task_processor: main-task-processor
+
+    logging:
+      fs-task-processor: fs-task-processor
+      loggers:
+        default:
+          file_path: "@stderr"
+          level: info
+
     handler-ping:
       path: /ping
       method: GET
       task_processor: main-task-processor
-
-    handler-tests-control:
-      path: /tests/control
-      method: POST
-      task_processor: main-task-processor
-
-    handler-server-monitor:
-      path: /server-monitor
-      method: GET
-      task_processor: main-task-processor
-
     handler-create-user:
       path: /api/v1/users
       method: POST
@@ -41,9 +45,6 @@ components_manager:
       path: /api/v1/hotels
       method: POST
       task_processor: main-task-processor
-      auth:
-        types:
-          - jwt
 
     handler-list-hotels:
       path: /api/v1/hotels
@@ -73,12 +74,3 @@ components_manager:
       auth:
         types:
           - jwt
-
-server:
-  listener:
-    port: 8080
-    task_processor: main-task-processor
-
-logger:
-  file: "@stderr"
-  level: info
