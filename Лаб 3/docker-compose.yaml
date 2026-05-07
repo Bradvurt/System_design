@@ -1,37 +1,46 @@
-version: '3.8'
-
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: hotel_postgres
+  postgres:
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: hotel_db
+      POSTGRES_DB: hotel_booking
+      POSTGRES_USER: hotel
+      POSTGRES_PASSWORD: hotel
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/1-schema.sql
-      - ./data.sql:/docker-entrypoint-initdb.d/2-data.sql
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./data.sql:/docker-entrypoint-initdb.d/02_data.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U hotel -d hotel_booking"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 20
 
-  api:
-    build: .
-    container_name: hotel_api
-    ports:
-      - "8000:8000"
+  hotel-booking-api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/hotel_db
+      POSTGRES_DSN: postgresql://hotel:hotel@postgres:5432/hotel_booking
+    expose:
+      - "8080"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
-    volumes:
-      - ./src:/app/src
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/v1/hotels >/dev/null || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 25
+      start_period: 15s
 
-volumes:
-  postgres_data:
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      hotel-booking-api:
+        condition: service_healthy

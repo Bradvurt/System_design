@@ -1,0 +1,456 @@
+openapi: 3.0.3
+info:
+  title: Hotel Booking API
+  version: 1.0.0
+  description: Вариант 13. Пользователи, отели, бронирования.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Auth
+  - name: Users
+  - name: Hotels
+  - name: Bookings
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              default:
+                value:
+                  login: traveler
+                  name: Ivan
+                  surname: Petrov
+                  email: ivan@example.com
+                  password: secret123
+      responses:
+        '201':
+          description: Пользователь создан, токен сессии выдан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Логин пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              default:
+                value:
+                  login: traveler
+                  password: secret123
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/by-login/{login}:
+    get:
+      tags: [Users]
+      summary: Поиск пользователя по логину
+      parameters:
+        - name: login
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Пользователь найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              examples:
+                sample:
+                  value:
+                    id: 1
+                    login: traveler
+                    name: Ivan
+                    surname: Petrov
+                    email: ivan@example.com
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/users/search:
+    get:
+      tags: [Users]
+      summary: Поиск пользователей по маске имени и фамилии
+      description: Нужно передать хотя бы один параметр `name` или `surname`.
+      parameters:
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: surname
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/hotels:
+    get:
+      tags: [Hotels]
+      summary: Получение списка отелей
+      parameters:
+        - name: city
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Если параметр указан, список фильтруется по городу
+      responses:
+        '200':
+          description: Список отелей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Hotel'
+              examples:
+                two_hotels:
+                  value:
+                    - id: 1
+                      name: Nevsky View
+                      city: Saint Petersburg
+                      address: Nevsky 1
+                      description: Downtown
+                    - id: 2
+                      name: Riverside
+                      city: Moscow
+                      address: Tverskaya 10
+                      description: ''
+    post:
+      tags: [Hotels]
+      summary: Создание отеля
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHotelRequest'
+            examples:
+              default:
+                value:
+                  name: Nevsky View
+                  city: Saint Petersburg
+                  address: Nevsky 1
+                  description: Hotel in the city center
+      responses:
+        '201':
+          description: Отель создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/bookings:
+    post:
+      tags: [Bookings]
+      summary: Создание бронирования
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+            examples:
+              default:
+                value:
+                  hotel_id: 1
+                  check_in: '2026-04-10'
+                  check_out: '2026-04-15'
+      responses:
+        '201':
+          description: Бронирование создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/users/{user_id}/bookings:
+    get:
+      tags: [Bookings]
+      summary: Получение бронирований пользователя
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Список бронирований пользователя
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Booking'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/bookings/{booking_id}:
+    delete:
+      tags: [Bookings]
+      summary: Отмена бронирования
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Бронирование отменено
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: SessionToken
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            default:
+              value:
+                error:
+                  code: validation_error
+                  message: Invalid request data
+    Unauthorized:
+      description: Требуется аутентификация
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Недостаточно прав
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Конфликт состояния
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+      required: [error]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        login:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        email:
+          type: string
+          format: email
+      required: [id, login, name, surname, email]
+
+    RegisterRequest:
+      type: object
+      properties:
+        login:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [login, name, surname, email, password]
+
+    LoginRequest:
+      type: object
+      properties:
+        login:
+          type: string
+        password:
+          type: string
+      required: [login, password]
+
+    AuthSessionResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        user:
+          $ref: '#/components/schemas/User'
+      required: [token, token_type, user]
+
+    Hotel:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+      required: [id, name, city, address, description]
+
+    CreateHotelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        city:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+          description: Необязательно; если не передать — сохраняется пустая строка
+      required: [name, city, address]
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        hotel_id:
+          type: integer
+          format: int64
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [active, cancelled]
+      required: [id, user_id, hotel_id, check_in, check_out, status]
+
+    CreateBookingRequest:
+      type: object
+      properties:
+        hotel_id:
+          type: integer
+          format: int64
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+      required: [hotel_id, check_in, check_out]

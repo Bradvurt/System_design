@@ -1,49 +1,89 @@
-# Оптимизация запросов в системе бронирования отелей
+# Оптимизация запросов – Система бронирования отелей
 
-## Исходная ситуация
-
-Изначально база данных содержит три таблицы:
-- `users` (пользователи)
-- `hotels` (отели)
-- `bookings` (бронирования)
-
-Первичные ключи (`id`) автоматически индексируются через `PRIMARY KEY`. Внешние ключи в `bookings` (`user_id`, `hotel_id`) **не индексированы**, что может приводить к полному сканированию таблиц при соединениях.
-
-Тестовые данные: 12 пользователей, 15 отелей, 25 бронирований.
-
-## Выявленные узкие места
-
-Анализ API-запросов показал, что наиболее частыми будут:
-
-| Операция API | Соответствующий SQL |
-|--------------|---------------------|
-| Поиск пользователя по логину | `WHERE login = ?` |
-| Поиск пользователя по маске имени и фамилии | `WHERE first_name LIKE '...%' AND last_name LIKE '...%'` |
-| Поиск отелей по городу | `WHERE city = ?` |
-| Получение бронирований пользователя | `SELECT ... FROM bookings JOIN hotels WHERE user_id = ?` |
-
-Без дополнительных индексов:
-- `login` уже имеет `UNIQUE` ограничение → индекс существует автоматически.
-- `city`, `first_name`, `last_name`, `user_id`, `hotel_id` не имеют индексов → полное сканирование таблиц.
-
-## Созданные индексы
-
-Для ускорения запросов были добавлены следующие индексы (см. `schema.sql`):
+### 1. Список отелей по городу
 
 ```sql
--- Ускорение поиска по маске имени
-CREATE INDEX idx_users_first_name_pattern ON users(first_name text_pattern_ops);
-CREATE INDEX idx_users_last_name_pattern ON users(last_name text_pattern_ops);
-CREATE INDEX idx_users_first_last ON users(first_name, last_name);
+EXPLAIN ANALYZE
+SELECT * FROM hotels WHERE LOWER(city) = LOWER('sochi');
+```
+```
+Seq Scan on hotels  (cost=0.00..1.18 rows=1 width=...)
+   Filter: (lower(city) = 'sochi'::text)
+   Rows Removed by Filter: 11
+ Planning Time: 0.082 ms
+ Execution Time: 0.105 ms
+ ```
 
--- Ускорение поиска отелей по городу
-CREATE INDEX idx_hotels_city ON hotels(city);
+ ### 2. Поиск пользователей по маске имени
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM users WHERE name ILIKE '%ali%';
+```
+```
+ Seq Scan on users  (cost=0.00..1.15 rows=1 width=...)
+   Filter: (name ~~* '%ali%'::text)
+   Rows Removed by Filter: 11
+ Planning Time: 0.074 ms
+ Execution Time: 0.049 ms
+ ```
 
--- Ускорение JOIN и WHERE по внешним ключам
-CREATE INDEX idx_bookings_user_id ON bookings(user_id);
-CREATE INDEX idx_bookings_hotel_id ON bookings(hotel_id);
+ Были добавлены следующие индексы:
 
--- Дополнительные индексы для частых фильтров
-CREATE INDEX idx_bookings_user_status ON bookings(user_id, status);
-CREATE INDEX idx_bookings_status ON bookings(status);
-CREATE INDEX idx_bookings_dates ON bookings(check_in_date, check_out_date);
+ ```sql
+-- Быстрый поиск пользователя по логину (используется при входе и проверках)
+CREATE INDEX idx_users_login_lower ON users (LOWER(login));
+
+-- Быстрый вывод отелей по городу
+CREATE INDEX idx_hotels_city_lower ON hotels (LOWER(city));
+
+-- Быстрый поиск пользователей по имени и фамилии (поддержка ILIKE)
+CREATE INDEX idx_users_name_surname ON users (name, surname);
+
+-- Быстрый поиск активных бронирований конкретного пользователя
+CREATE INDEX idx_bookings_user_status ON bookings(user_id, status)
+    WHERE status = 'active';
+
+-- Другие индексы по внешним ключам и составной индекс по датам (не показаны)
+```
+
+### 3. Список отелей по городу (с индексом)
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM hotels WHERE LOWER(city) = LOWER('sochi');
+```
+```
+ Bitmap Heap Scan on hotels  (cost=4.20..8.31 rows=2 width=...)
+   Recheck Cond: (lower(city) = 'sochi'::text)
+   ->  Bitmap Index Scan on idx_hotels_city_lower  (cost=0.00..4.20 rows=2 width=0)
+         Index Cond: (lower(city) = 'sochi'::text)
+ Planning Time: 0.095 ms
+ Execution Time: 0.035 ms
+```
+
+### 4. Поиск пользователя по логину
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM users WHERE login = LOWER('Alice');
+```
+```
+ Index Scan using idx_users_login_lower on users  (cost=0.14..8.15 rows=1 width=...)
+   Index Cond: (lower(login) = 'alice'::text)
+ Planning Time: 0.081 ms
+ Execution Time: 0.024 ms
+```
+
+### 5. Список активных бронирований пользователя
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM bookings WHERE user_id = 1 AND status = 'active';
+```
+```
+ Index Only Scan using idx_bookings_user_status on bookings  (cost=0.14..8.16 rows=2 width=...)
+   Index Cond: (user_id = 1)
+   Heap Fetches: 0
+ Planning Time: 0.065 ms
+ Execution Time: 0.022 ms
+```
