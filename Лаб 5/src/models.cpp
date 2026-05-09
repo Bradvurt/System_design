@@ -1,29 +1,47 @@
 #include "models.hpp"
-#include <algorithm>
-#include <stdexcept>
 
-Storage& Storage::instance() {
+#include <algorithm>
+#include <cctype>
+#include <regex>
+
+// --------------- Storage Singleton ---------------
+
+Storage& Storage::Instance() {
     static Storage instance;
     return instance;
 }
 
-void Storage::clearForTests() {
-    std::lock_guard lock(mutex_);
-    users_.clear();
-    hotels_.clear();
-    bookings_.clear();
-    next_user_id_ = 0;
-    next_hotel_id_ = 0;
-    next_booking_id_ = 0;
-    hotels_cache_.clear();
-    user_bookings_cache_.clear();
-    rate_limit_counters_.clear();
-}
+// --------------- String Helpers ---------------
 
 std::string Storage::ToLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<T>(std::tolower(c)); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
+}
+
+std::string Storage::Trim(const std::string& value) {
+    const auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    });
+    const auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    }).base();
+    if (begin >= end) return {};
+    return std::string(begin, end);
+}
+
+std::string Storage::Normalize(const std::string& value) {
+    return ToLower(Trim(value));
+}
+
+bool Storage::IsBlank(const std::string& value) {
+    return Trim(value).empty();
+}
+
+bool Storage::ContainsCaseInsensitive(std::string_view haystack,
+                                       std::string_view needle) {
+    return ToLower(std::string(haystack)).find(ToLower(std::string(needle))) !=
+           std::string::npos;
 }
 
 bool Storage::MaskMatches(const std::string& value, const std::string& mask) {
@@ -31,189 +49,187 @@ bool Storage::MaskMatches(const std::string& value, const std::string& mask) {
     return ToLower(value).find(ToLower(mask)) != std::string::npos;
 }
 
-// --- User operations ---
-std::optional<User> Storage::addUser(const std::string& login,
-                                     const std::string& password_hash,
-                                     const std::string& first_name,
-                                     const std::string& last_name) {
+// --------------- User Operations ---------------
+
+std::optional<User> Storage::AddUser(std::string login, std::string name,
+                                     std::string surname, std::string email,
+                                     std::string password_hash) {
     std::lock_guard lock(mutex_);
-    if (std::any_of(users_.begin(), users_.end(),
-                    [&](const User& u) { return u.login == login; })) {
-        return std::nullopt;
+
+    // Check for duplicate login
+    for (const auto& u : users_) {
+        if (Normalize(u.login) == Normalize(login)) {
+            return std::nullopt;
+        }
     }
-    users_.push_back(User{++next_user_id_, login, password_hash, first_name, last_name});
-    return users_.back();
+
+    User user;
+    user.id = next_user_id_++;
+    user.login = login;
+    user.name = name;
+    user.surname = surname;
+    user.email = email;
+    user.password_hash = password_hash;
+    users_.push_back(user);
+    return user;
 }
 
-std::optional<User> Storage::findUserByLogin(const std::string& login) const {
+std::optional<User> Storage::FindUserByLogin(const std::string& login) const {
     std::lock_guard lock(mutex_);
-    auto it = std::find_if(users_.begin(), users_.end(),
-                           [&](const User& u) { return u.login == login; });
-    if (it == users_.end()) return std::nullopt;
-    return *it;
+    auto normalized = Normalize(login);
+    for (const auto& u : users_) {
+        if (Normalize(u.login) == normalized) {
+            return u;
+        }
+    }
+    return std::nullopt;
 }
 
-std::vector<User> Storage::searchUsers(const std::string& login,
-                                       const std::string& first_name_mask,
-                                       const std::string& last_name_mask) const {
+std::optional<User> Storage::FindUserById(std::int64_t user_id) const {
+    std::lock_guard lock(mutex_);
+    for (const auto& u : users_) {
+        if (u.id == user_id) return u;
+    }
+    return std::nullopt;
+}
+
+std::vector<User> Storage::SearchUsers(const std::string& name_mask,
+                                        const std::string& surname_mask) const {
     std::lock_guard lock(mutex_);
     std::vector<User> result;
-    for (const auto& user : users_) {
-        if (!login.empty() && user.login != login) continue;
-        if (!MaskMatches(user.first_name, first_name_mask)) continue;
-        if (!MaskMatches(user.last_name, last_name_mask)) continue;
-        result.push_back(user);
+    for (const auto& u : users_) {
+        if (!MaskMatches(u.name, name_mask)) continue;
+        if (!MaskMatches(u.surname, surname_mask)) continue;
+        result.push_back(u);
     }
     return result;
 }
 
-// --- Hotel operations ---
-std::optional<Hotel> Storage::addHotel(const std::string& name,
-                                       const std::string& city,
-                                       const std::string& address) {
-    std::lock_guard lock(mutex_);
-    hotels_.push_back(Hotel{++next_hotel_id_, name, city, address});
-    invalidateHotelsCache();
-    return hotels_.back();
+bool Storage::UserExists(std::int64_t user_id) const {
+    return FindUserById(user_id).has_value();
 }
 
-std::vector<Hotel> Storage::listHotels(const std::string& city) const {
-    using Clock = std::chrono::steady_clock;
-    const auto cache_key = buildHotelsCacheKey(city.empty() ? std::optional<std::string>{} : city);
-    const auto now = Clock::now();
+// --------------- Hotel Operations ---------------
 
-    {
-        std::lock_guard lock(mutex_);
-        auto cache_it = hotels_cache_.find(cache_key);
-        if (cache_it != hotels_cache_.end() && cache_it->second.expire_at > now) {
-            return cache_it->second.hotels;
-        }
-    }
+std::optional<Hotel> Storage::AddHotel(std::string name, std::string city,
+                                        std::string address,
+                                        std::string description,
+                                        std::int64_t created_by_user_id) {
+    std::lock_guard lock(mutex_);
+    Hotel hotel;
+    hotel.id = next_hotel_id_++;
+    hotel.name = name;
+    hotel.city = city;
+    hotel.address = address;
+    hotel.description = description;
+    hotel.created_by_user_id = created_by_user_id;
+    hotels_.push_back(hotel);
+    return hotel;
+}
 
+std::vector<Hotel> Storage::ListHotels(const std::string& city_filter) const {
     std::lock_guard lock(mutex_);
     std::vector<Hotel> result;
-    if (city.empty()) {
-        result = hotels_;
-    } else {
-        for (const auto& hotel : hotels_) {
-            if (ToLower(hotel.city) == ToLower(city)) {
-                result.push_back(hotel);
-            }
-        }
+    for (const auto& h : hotels_) {
+        if (!city_filter.empty() && Normalize(h.city) != Normalize(city_filter))
+            continue;
+        result.push_back(h);
     }
-    hotels_cache_[cache_key] = CachedHotelsEntry{result, now + std::chrono::seconds(60)};
     return result;
 }
 
-std::optional<Hotel> Storage::findHotelById(int id) const {
+std::optional<Hotel> Storage::FindHotelById(std::int64_t hotel_id) const {
     std::lock_guard lock(mutex_);
-    auto it = std::find_if(hotels_.begin(), hotels_.end(),
-                           [&](const Hotel& h) { return h.id == id; });
-    if (it == hotels_.end()) return std::nullopt;
-    return *it;
+    for (const auto& h : hotels_) {
+        if (h.id == hotel_id) return h;
+    }
+    return std::nullopt;
 }
 
-// --- Booking operations ---
-std::optional<Booking> Storage::addBooking(int user_id, int hotel_id,
-                                          const std::string& check_in,
-                                          const std::string& check_out) {
+// --------------- Booking Operations ---------------
+
+std::optional<Booking> Storage::AddBooking(std::int64_t user_id,
+                                            std::int64_t hotel_id,
+                                            std::string check_in,
+                                            std::string check_out) {
     std::lock_guard lock(mutex_);
-    const auto hotel_it = std::find_if(hotels_.begin(), hotels_.end(),
-                                       [&](const Hotel& h) { return h.id == hotel_id; });
-    const auto user_it = std::find_if(users_.begin(), users_.end(),
-                                      [&](const User& u) { return u.id == user_id; });
-    if (hotel_it == hotels_.end() || user_it == users_.end()) {
-        return std::nullopt;
+
+    // Validate hotel and user exist
+    bool hotel_found = false;
+    for (const auto& h : hotels_) {
+        if (h.id == hotel_id) { hotel_found = true; break; }
     }
-    if (check_in >= check_out) {
-        return std::nullopt;
+    if (!hotel_found) return std::nullopt;
+
+    bool user_found = false;
+    for (const auto& u : users_) {
+        if (u.id == user_id) { user_found = true; break; }
     }
-    bookings_.push_back(Booking{++next_booking_id_, user_id, hotel_id, check_in, check_out, true});
-    invalidateUserBookingsCache(user_id);
-    return bookings_.back();
+    if (!user_found) return std::nullopt;
+
+    // Check for date overlaps with active bookings for the same hotel
+    for (const auto& b : bookings_) {
+        if (b.hotel_id != hotel_id || !b.active) continue;
+        // Overlap: !(check_out <= b.check_in || check_in >= b.check_out)
+        bool overlap = !(check_out <= b.check_in || check_in >= b.check_out);
+        if (overlap) return std::nullopt;
+    }
+
+    Booking booking;
+    booking.id = next_booking_id_++;
+    booking.user_id = user_id;
+    booking.hotel_id = hotel_id;
+    booking.check_in = check_in;
+    booking.check_out = check_out;
+    booking.active = true;
+    bookings_.push_back(booking);
+    return booking;
 }
 
-std::vector<Booking> Storage::listBookingsByUser(int user_id) const {
-    using Clock = std::chrono::steady_clock;
-    const auto now = Clock::now();
-
-    {
-        std::lock_guard lock(mutex_);
-        auto cache_it = user_bookings_cache_.find(user_id);
-        if (cache_it != user_bookings_cache_.end() && cache_it->second.expire_at > now) {
-            return cache_it->second.bookings;
-        }
-    }
-
+std::vector<Booking> Storage::ListUserBookings(std::int64_t user_id) const {
     std::lock_guard lock(mutex_);
     std::vector<Booking> result;
-    for (const auto& booking : bookings_) {
-        if (booking.user_id == user_id) {
-            result.push_back(booking);
-        }
+    for (const auto& b : bookings_) {
+        if (b.user_id == user_id) result.push_back(b);
     }
-    user_bookings_cache_[user_id] = CachedUserBookingsEntry{result, now + std::chrono::seconds(30)};
     return result;
 }
 
-std::optional<Booking> Storage::findBookingById(int id) const {
+std::optional<Booking> Storage::FindBookingById(std::int64_t booking_id) const {
     std::lock_guard lock(mutex_);
-    auto it = std::find_if(bookings_.begin(), bookings_.end(),
-                           [&](const Booking& b) { return b.id == id; });
-    if (it == bookings_.end()) return std::nullopt;
-    return *it;
-}
-
-bool Storage::cancelBooking(int booking_id, int user_id) {
-    std::lock_guard lock(mutex_);
-    auto it = std::find_if(bookings_.begin(), bookings_.end(),
-                           [&](Booking& b) { return b.id == booking_id; });
-    if (it == bookings_.end() || it->user_id != user_id) {
-        return false;
+    for (const auto& b : bookings_) {
+        if (b.id == booking_id) return b;
     }
-    it->active = false;
-    invalidateUserBookingsCache(user_id);
-    return true;
+    return std::nullopt;
 }
 
-// --- Caching helpers (retained from lab5) ---
-void Storage::invalidateHotelsCache() {
+bool Storage::CancelBooking(std::int64_t booking_id) {
     std::lock_guard lock(mutex_);
-    hotels_cache_.clear();
+    for (auto& b : bookings_) {
+        if (b.id == booking_id && b.active) {
+            b.active = false;
+            return true;
+        }
+    }
+    return false;
 }
 
-void Storage::invalidateUserBookingsCache(int user_id) {
+// --------------- Session Operations ---------------
+
+void Storage::StoreSession(const Session& session) {
     std::lock_guard lock(mutex_);
-    user_bookings_cache_.erase(user_id);
+    // Remove existing session for the same user
+    sessions_.erase(
+        std::remove_if(sessions_.begin(), sessions_.end(),
+                       [&](const Session& s) { return s.user_id == session.user_id; }),
+        sessions_.end());
+    sessions_.push_back(session);
 }
 
-std::string Storage::buildHotelsCacheKey(const std::optional<std::string>& city_filter) {
-    if (!city_filter.has_value()) {
-        return "all";
-    }
-    const auto city_value = city_filter.value();
-    return city_value.empty() ? "all" : "city:" + ToLower(city_value);
-}
-
-// --- Rate limiting (retained from lab5) ---
-Storage::RateLimitDecision Storage::checkBookingRateLimit(int user_id) {
-    constexpr std::uint32_t kRequestLimit = 20;
-    constexpr std::chrono::seconds kWindow{60};
-    const auto now = std::chrono::steady_clock::now();
-
+std::optional<Session> Storage::FindSession(const std::string& token) const {
     std::lock_guard lock(mutex_);
-    auto& [count, window_start] = rate_limit_counters_[user_id];
-    if (now - window_start >= kWindow) {
-        // Reset the window
-        count = 0;
-        window_start = now;
+    for (const auto& s : sessions_) {
+        if (s.token == token) return s;
     }
-    if (count >= kRequestLimit) {
-        const auto reset_time = std::chrono::duration_cast<std::chrono::seconds>(
-            (window_start + kWindow - now)).count();
-        return {false, kRequestLimit, 0, static_cast<std::int64_t>(reset_time)};
-    }
-    count++;
-    const auto remaining = kRequestLimit - count;
-    return {true, kRequestLimit, remaining, 0};
+    return std::nullopt;
 }

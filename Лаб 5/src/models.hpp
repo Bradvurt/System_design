@@ -1,85 +1,88 @@
 #pragma once
 
-#include <vector>
+#include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
-#include <mutex>
-#include <unordered_map>
-#include <chrono>
+#include <vector>
+
+// --------------- Data Structures ---------------
 
 struct User {
-    int id{};
+    std::int64_t id{0};
     std::string login;
+    std::string name;
+    std::string surname;
+    std::string email;
     std::string password_hash;
-    std::string first_name;
-    std::string last_name;
 };
 
 struct Hotel {
-    int id{};
+    std::int64_t id{0};
     std::string name;
     std::string city;
     std::string address;
+    std::string description;
+    std::int64_t created_by_user_id{0};
 };
 
 struct Booking {
-    int id{};
-    int user_id{};
-    int hotel_id{};
+    std::int64_t id{0};
+    std::int64_t user_id{0};
+    std::int64_t hotel_id{0};
     std::string check_in;
     std::string check_out;
-    bool active{true};
+    bool active{true};  // true = active, false = cancelled
 };
+
+struct Session {
+    std::string token;
+    std::int64_t user_id{0};
+    std::string login;
+};
+
+// --------------- In-Memory Storage ---------------
 
 class Storage {
 public:
-    static Storage& instance();
+    static Storage& Instance();
 
-    // User operations
-    std::optional<User> addUser(const std::string& login,
-                                const std::string& password_hash,
-                                const std::string& first_name,
-                                const std::string& last_name);
-    std::optional<User> findUserByLogin(const std::string& login) const;
-    std::vector<User> searchUsers(const std::string& login,
-                                  const std::string& first_name_mask,
-                                  const std::string& last_name_mask) const;
+    // Users
+    std::optional<User> AddUser(std::string login, std::string name,
+                                std::string surname, std::string email,
+                                std::string password_hash);
+    std::optional<User> FindUserByLogin(const std::string& login) const;
+    std::optional<User> FindUserById(std::int64_t user_id) const;
+    std::vector<User> SearchUsers(const std::string& name_mask,
+                                  const std::string& surname_mask) const;
+    bool UserExists(std::int64_t user_id) const;
 
-    // Hotel operations
-    std::optional<Hotel> addHotel(const std::string& name,
-                                  const std::string& city,
-                                  const std::string& address);
-    std::vector<Hotel> listHotels(const std::string& city) const;
-    std::optional<Hotel> findHotelById(int id) const;
+    // Hotels
+    std::optional<Hotel> AddHotel(std::string name, std::string city,
+                                  std::string address, std::string description,
+                                  std::int64_t created_by_user_id);
+    std::vector<Hotel> ListHotels(const std::string& city_filter) const;
+    std::optional<Hotel> FindHotelById(std::int64_t hotel_id) const;
 
-    // Booking operations
-    std::optional<Booking> addBooking(int user_id, int hotel_id,
-                                     const std::string& check_in,
-                                     const std::string& check_out);
-    std::vector<Booking> listBookingsByUser(int user_id) const;
-    std::optional<Booking> findBookingById(int id) const;
-    bool cancelBooking(int booking_id, int user_id);
+    // Bookings
+    std::optional<Booking> AddBooking(std::int64_t user_id,
+                                      std::int64_t hotel_id,
+                                      std::string check_in,
+                                      std::string check_out);
+    std::vector<Booking> ListUserBookings(std::int64_t user_id) const;
+    std::optional<Booking> FindBookingById(std::int64_t booking_id) const;
+    bool CancelBooking(std::int64_t booking_id);
 
-    // Caching (retained from lab5)
-    struct CachedHotelsEntry {
-        std::vector<Hotel> hotels;
-        std::chrono::steady_clock::time_point expire_at;
-    };
-    struct CachedUserBookingsEntry {
-        std::vector<Booking> bookings;
-        std::chrono::steady_clock::time_point expire_at;
-    };
+    // Sessions
+    void StoreSession(const Session& session);
+    std::optional<Session> FindSession(const std::string& token) const;
 
-    // Rate limiting (retained from lab5)
-    struct RateLimitDecision {
-        bool allowed{true};
-        std::uint32_t limit{20};
-        std::uint32_t remaining{20};
-        std::int64_t reset_unix_seconds{0};
-    };
-    RateLimitDecision checkBookingRateLimit(int user_id);
-
-    void clearForTests();
+    // Helpers
+    static std::string Normalize(const std::string& value);
+    static std::string Trim(const std::string& value);
+    static bool IsBlank(const std::string& value);
+    static bool ContainsCaseInsensitive(std::string_view haystack,
+                                        std::string_view needle);
 
 private:
     Storage() = default;
@@ -87,22 +90,14 @@ private:
     static bool MaskMatches(const std::string& value, const std::string& mask);
     static std::string ToLower(std::string s);
 
-    void invalidateHotelsCache();
-    void invalidateUserBookingsCache(int user_id);
-    static std::string buildHotelsCacheKey(const std::optional<std::string>& city_filter);
-
     mutable std::mutex mutex_;
+
     std::vector<User> users_;
     std::vector<Hotel> hotels_;
     std::vector<Booking> bookings_;
-    int next_user_id_{0};
-    int next_hotel_id_{0};
-    int next_booking_id_{0};
+    std::vector<Session> sessions_;
 
-    // Cache state
-    mutable std::unordered_map<std::string, CachedHotelsEntry> hotels_cache_;
-    mutable std::unordered_map<int, CachedUserBookingsEntry> user_bookings_cache_;
-
-    // Rate limit state (simple fixed-window counter using a map)
-    mutable std::unordered_map<int, std::pair<int, std::chrono::steady_clock::time_point>> rate_limit_counters_;
+    std::int64_t next_user_id_{1};
+    std::int64_t next_hotel_id_{1};
+    std::int64_t next_booking_id_{1};
 };

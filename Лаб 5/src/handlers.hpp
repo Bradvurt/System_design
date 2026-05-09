@@ -1,71 +1,129 @@
 #pragma once
 
+#include <userver/components/component_base.hpp>
+#include <userver/components/component_context.hpp>
 #include <userver/server/handlers/http_handler_base.hpp>
+#include <userver/storages/redis/client.hpp>
+
+#include "cache.hpp"
+#include "rate_limiter.hpp"
 
 namespace handlers {
 
-class CreateUserHandler final : public userver::server::handlers::HttpHandlerBase {
+// --------------- Service Component ---------------
+
+class HotelBookingServiceComponent final
+    : public userver::components::ComponentBase {
 public:
-    static constexpr std::string_view kName = "handler-create-user";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "hotel-booking-service";
+
+    HotelBookingServiceComponent(const userver::components::ComponentConfig& config,
+                                  const userver::components::ComponentContext& context);
+
+    CacheService& GetCache() { return *cache_; }
+    RateLimiter& GetRateLimiter() { return *rate_limiter_; }
+
+private:
+    std::unique_ptr<CacheService> cache_;
+    std::unique_ptr<RateLimiter> rate_limiter_;
 };
 
-class GetUserHandler final : public userver::server::handlers::HttpHandlerBase {
-public:
-    static constexpr std::string_view kName = "handler-get-user";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+// --------------- Auth Context ---------------
+
+struct AuthContext {
+    std::int64_t user_id{0};
+    std::string login;
 };
 
-class LoginHandler final : public userver::server::handlers::HttpHandlerBase {
+// --------------- Handler Base ---------------
+
+class HandlerBase : public userver::server::handlers::HttpHandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-login";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    HandlerBase(const userver::components::ComponentConfig& config,
+                const userver::components::ComponentContext& context);
+
+protected:
+    CacheService& GetCache() const;
+    RateLimiter& GetRateLimiter() const;
+
+    AuthContext RequireAuth(const userver::server::http::HttpRequest& request) const;
+
+private:
+    HotelBookingServiceComponent& service_;
 };
 
-class CreateHotelHandler final : public userver::server::handlers::HttpHandlerBase {
+// --------------- Concrete Handlers ---------------
+
+class RegisterHandler final : public HandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-create-hotel";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "handler-auth-register";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
 };
 
-class ListHotelsHandler final : public userver::server::handlers::HttpHandlerBase {
+class LoginHandler final : public HandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-list-hotels";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "handler-auth-login";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
 };
 
-class CreateBookingHandler final : public userver::server::handlers::HttpHandlerBase {
+class UserByLoginHandler final : public HandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-create-booking";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "handler-user-by-login";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
 };
 
-class ListUserBookingsHandler final : public userver::server::handlers::HttpHandlerBase {
+class UserSearchHandler final : public HandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-list-user-bookings";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "handler-user-search";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
 };
 
-class CancelBookingHandler final : public userver::server::handlers::HttpHandlerBase {
+class HotelsHandler final : public HandlerBase {
 public:
-    static constexpr std::string_view kName = "handler-cancel-booking";
-    using HttpHandlerBase::HttpHandlerBase;
-    std::string HandleRequestThrow(const userver::server::http::HttpRequest& request,
-                                   userver::server::request::RequestContext& context) const override;
+    static constexpr std::string_view kName = "handler-hotels";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
 };
 
-} // namespace handlers
+class BookingsHandler final : public HandlerBase {
+public:
+    static constexpr std::string_view kName = "handler-bookings";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
+};
+
+class UserBookingsHandler final : public HandlerBase {
+public:
+    static constexpr std::string_view kName = "handler-user-bookings";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
+};
+
+class BookingByIdHandler final : public HandlerBase {
+public:
+    static constexpr std::string_view kName = "handler-booking-by-id";
+    using HandlerBase::HandlerBase;
+    std::string HandleRequestThrow(
+        const userver::server::http::HttpRequest& request,
+        userver::server::request::RequestContext& context) const override;
+};
+
+}  // namespace handlers

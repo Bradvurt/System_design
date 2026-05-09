@@ -1,12 +1,18 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 namespace auth {
 
-std::string HashPassword(const std::string& password);
-bool VerifyPassword(const std::string& password, const std::string& hash);
-std::string GenerateToken(int user_id);
-int VerifyToken(const std::string& token);
+// Generate a simple session token for a user
+std::string GenerateToken(std::int64_t user_id, const std::string& login);
 
-} // namespace auth
+// Hash a password using FNV-1a
+std::string HashPassword(const std::string& password);
+
+// Verify password against hash
+bool VerifyPassword(const std::string& password, const std::string& hash);
+
+}  // namespace auth
