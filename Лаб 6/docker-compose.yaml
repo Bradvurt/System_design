@@ -1,0 +1,61 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  mongodb:
+    image: mongo:7-jammy
+    container_name: booking-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: booking_admin
+      MONGO_INITDB_ROOT_PASSWORD: booking_password
+      MONGO_INITDB_DATABASE: hotel_booking_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  hotel-booking-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hotel-booking-monolith
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MONGO_URI: "mongodb://booking_admin:booking_password@mongodb:27017/hotel_booking_db?authSource=admin"
+      RABBITMQ_URI: "amqp://guest:guest@rabbitmq:5672/"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mongo-data:
